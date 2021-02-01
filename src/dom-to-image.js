@@ -11,7 +11,9 @@
         // Default is to fail on error, no placeholder
         imagePlaceholder: undefined,
         // Default cache bust is false, it will use the cache
-        cacheBust: false
+        cacheBust: false,
+        // Use (existing) authentication credentials for external URIs (CORS requests)
+        useCredentials: false
     };
 
     var domtoimage = {
@@ -46,8 +48,11 @@
      * @param {Object} options.style - an object whose properties to be copied to node's style before rendering.
      * @param {Number} options.quality - a Number between 0 and 1 indicating image quality (applicable to JPEG only),
                 defaults to 1.0.
+     * @param {Number} options.scale - scale factor for image quality rendering (to unblurry JPEG and PNG output),
+                default = unset = no scaling applied = 1.0.
      * @param {String} options.imagePlaceholder - dataURL to use as a placeholder for failed images, default behaviour is to fail fast on images we can't fetch
      * @param {Boolean} options.cacheBust - set to true to cache bust by appending the time to the request url
+     * @param {Boolean} options.useCredentials - set to true to send (existing) authentication credentials to external URIs (CORS requests)
      * @return {Promise} - A promise that is fulfilled with a SVG image data URL
      * */
     function toSvg(node, options) {
@@ -147,6 +152,12 @@
         } else {
             domtoimage.impl.options.cacheBust = options.cacheBust;
         }
+
+        if(typeof(options.useCredentials) === 'undefined') {
+            domtoimage.impl.options.useCredentials = defaultOptions.useCredentials;
+        } else {
+            domtoimage.impl.options.useCredentials = options.useCredentials;
+        }
     }
 
     function draw(domNode, options) {
@@ -155,14 +166,24 @@
             .then(util.delay(100))
             .then(function (image) {
                 var canvas = newCanvas(domNode);
-                canvas.getContext('2d').drawImage(image, 0, 0);
+                var ctx = canvas.getContext('2d');
+                if (options.scale) {
+                    ctx.scale(options.scale, options.scale);
+                }
+                ctx.drawImage(image, 0, 0);
                 return canvas;
             });
 
         function newCanvas(domNode) {
             var canvas = document.createElement('canvas');
-            canvas.width = options.width || util.width(domNode);
-            canvas.height = options.height || util.height(domNode);
+            if (options.scale) {
+                canvas.width = options.width || options.scale * util.width(domNode);
+                canvas.height = options.height || options.scale * util.height(domNode);
+            }
+            else {
+                canvas.width = options.width || util.width(domNode);
+                canvas.height = options.height || util.height(domNode);
+            }
 
             if (options.bgcolor) {
                 var ctx = canvas.getContext('2d');
@@ -452,6 +473,9 @@
         function makeImage(uri) {
             return new Promise(function (resolve, reject) {
                 var image = new Image();
+                if(domtoimage.impl.options.useCredentials) {
+                    image.crossOrigin = 'use-credentials';
+                }
                 image.onload = function () {
                     resolve(image);
                 };
@@ -475,6 +499,9 @@
                 request.ontimeout = timeout;
                 request.responseType = 'blob';
                 request.timeout = TIMEOUT;
+                if(domtoimage.impl.options.useCredentials) {
+                    request.withCredentials = true;
+                }
                 request.open('GET', url, true);
                 request.send();
 
